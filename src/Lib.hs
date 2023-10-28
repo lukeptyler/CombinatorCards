@@ -4,7 +4,7 @@ import qualified Data.Map as M
 import Data.List (intercalate)
 
 import Control.Monad.IO.Class
-import Control.Monad.Catch
+import Control.Monad.Trans.State
 
 -- Cards --
 type Name = String
@@ -52,7 +52,119 @@ applyAction binding (Var v:rest) = case binding M.!? v of
   Just card -> card : applyAction binding rest
 applyAction binding (card:rest) = card : applyAction binding rest
 
+
 -- Execution --
+type Info = (NamedCards, Deck)
+type Command = StateT Info IO
+
+onlyIf_ :: Bool -> Command () -> Command ()
+onlyIf_ True  cmd = cmd
+onlyIf_ False _   = pure ()
+
+getInfo :: Command Info
+getInfo = get
+
+getNamed :: Command NamedCards
+getNamed = gets fst
+
+getDeck :: Command Deck
+getDeck = gets snd
+
+isPlayable :: Command Bool
+isPlayable = do
+  (named, deck) <- getInfo
+  case deck of
+    []                -> pure False
+    (Basic _:_)       -> pure False
+    (Named name:rest) -> pure $ isNamePlayable named name rest
+    (Group _:_)       -> pure True
+    (Var _:_)         -> fail "Var should not be here" -- TODO: Better error messages
+
+drawCard :: Command (Card, Deck)
+drawCard = do
+  deck <- getDeck
+  pure (head deck, tail deck)
+
+setDeck :: Deck -> Command ()
+setDeck deck = modify $ \(named,_) -> (named,deck)
+
+-- play the top card. equals if top card was played
+-- TODO: There must be a better way to do this
+stepTop :: Command Bool
+stepTop = do
+  playable <- isPlayable
+  onlyIf_ playable $ do
+    named <- getNamed
+    (top, deck') <- drawCard
+    setDeck (playCard named top deck')
+  pure playable
+
+-- play top card until fully simplified starting at top and then in groups
+simplifyDeck :: Command ()
+simplifyDeck = do
+  simplifyTop
+  deck <- getDeck
+  deck' <- mapM simplifyGroup deck
+  setDeck deck'
+  where
+    simplifyTop :: Command ()
+    simplifyTop = do
+      playedCard <- stepTop
+      if playedCard
+      then simplifyTop
+      else pure ()
+
+    simplifyGroup :: Card -> Command Card
+    simplifyGroup (Group grp) = do
+      setDeck grp
+      simplifyDeck
+      grp' <- getDeck
+      if length grp' == 1
+      then pure $ head grp'
+      else pure $ Group grp'
+    simplifyGroup card = pure card
+
+-- same as simplifyDeck showing intermediate steps
+simplifyDeckInteract :: (Deck -> IO ()) -> Command ()
+simplifyDeckInteract draw = do
+  liftIO $ putStrLn "Simplifying deck"
+  drawDeck
+  simplifyTop
+  deck <- getDeck
+  deck' <- mapM simplifyGroup deck
+  setDeck deck'
+  where
+    drawDeck :: Command ()
+    drawDeck = do
+      deck <- getDeck
+      liftIO $ draw deck
+      _ <- liftIO getLine
+      pure ()
+
+    simplifyTop :: Command ()
+    simplifyTop = do
+      deck <- getDeck
+      playedCard <- stepTop
+      if playedCard
+      then do
+        liftIO $ putStrLn $ "Played card " ++ show (head deck)
+        drawDeck
+        simplifyTop
+      else pure ()
+
+    simplifyGroup :: Card -> Command Card
+    simplifyGroup (Group grp) = do
+      liftIO $ putStrLn $ "Entering group (" ++ showDeck grp ++ ")"
+      setDeck grp
+      simplifyDeckInteract draw
+      grp' <- getDeck
+      if length grp' == 1
+      then pure $ head grp'
+      else pure $ Group grp'
+    simplifyGroup card = pure card
+
+
+{-}
 type Info = (NamedCards, Deck)  -- state for commands
 data Command a = Cmd {doCmd :: Info -> IO (Info, a)}
 
@@ -193,7 +305,7 @@ simplifyDeckInteract draw = do
       then pure $ head grp'
       else pure $ Group grp'
     simplifyGroup card = pure card
-
+-}
 ------------- Default Cards --------------
 
 type DefaultCard = (Name, Either Action Deck)
