@@ -25,7 +25,9 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Cards
+      CLI
+      Command
   other-modules:
       Paths_CombinatorCards
   autogen-modules:
