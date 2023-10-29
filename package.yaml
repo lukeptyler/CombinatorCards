@@ -25,7 +25,6 @@ dependencies:
 - haskeline
 - transformers
 - exceptions
-- parsec
 
 ghc-options:
 - -Wall

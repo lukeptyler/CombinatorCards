@@ -28,6 +28,7 @@ library
       Cards
       CLI
       Command
+      Parse
   other-modules:
       Paths_CombinatorCards
   autogen-modules:
